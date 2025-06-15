@@ -16,7 +16,7 @@ class dns_message():
         recursion_available_RA = 0
         reserved_Z = 0
         response_code_RCODE = 0
-        question_count_QDCOUNT = 0
+        question_count_QDCOUNT = 1
         answer_record_count_ANCOUNT = 0
         authority_record_count_NSCOUNT = 0
         additional_record_count_ARCOUNT = 0
@@ -43,9 +43,26 @@ class dns_message():
 
         self.headermsg = headermsg.to_bytes(12, byteorder="big") # big-endian format
     
+    def question(self):
+        name_QNAME_label_1 = "codecrafters"
+        name_QNAME_label_2 = "io"
+        type_QTYPE = 1
+        class_QCLASS = 1
+
+        question_msg = (
+            len(name_QNAME_label_1).to_bytes(length=1, byteorder="big") + name_QNAME_label_1.encode() +
+            len(name_QNAME_label_2).to_bytes(length=1, byteorder="big") + name_QNAME_label_2.encode() + 
+            b"\x00" + type_QTYPE.to_bytes(2,byteorder="big")+
+            class_QCLASS.to_bytes(2,byteorder="big")
+        )
+
+        return question_msg
+
+
+    
     def fullmsg(self):
         self.header()
-        fullmsg = self.headermsg
+        fullmsg = self.headermsg + self.question()
         return fullmsg 
 
 
