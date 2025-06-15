@@ -17,7 +17,7 @@ class dns_message():
         reserved_Z = 0
         response_code_RCODE = 0
         question_count_QDCOUNT = 1
-        answer_record_count_ANCOUNT = 0
+        answer_record_count_ANCOUNT = 1
         authority_record_count_NSCOUNT = 0
         additional_record_count_ARCOUNT = 0
 
@@ -59,10 +59,30 @@ class dns_message():
         return question_msg
 
 
-    
+    def answer(self):
+        name_NAME_label_1 = "codecrafters"
+        name_NAME_label_2 = "io"
+        type_TYPE = 1
+        class_CLASS = 1
+        ttl_TTL = 60
+        length_RDLENGTH = 4
+        data_RDATA = b"\x08"+b"\x08"+b"\x08"+b"\x08"
+
+        answer = (
+            len(name_NAME_label_1).to_bytes(length=1, byteorder="big") + name_NAME_label_1.encode() +
+            len(name_NAME_label_2).to_bytes(length=1, byteorder="big") + name_NAME_label_2.encode() + 
+            b"\x00" + type_TYPE.to_bytes(2,byteorder="big")+
+            class_CLASS.to_bytes(2,byteorder="big") + 
+            ttl_TTL.to_bytes(4,byteorder="big") +
+            length_RDLENGTH.to_bytes(2,byteorder="big") +
+            data_RDATA
+        ) 
+        return answer
+
+
     def fullmsg(self):
         self.header()
-        fullmsg = self.headermsg + self.question()
+        fullmsg = self.headermsg + self.question() + self.answer()
         return fullmsg 
 
 
