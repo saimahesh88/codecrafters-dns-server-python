@@ -1,47 +1,58 @@
 import socket
 
-class dns_message():
-    
-    def __init__(self):
-        self.headermsg = b""
-        pass
-    
-    def header(self):
-        packet_id_ID = 1234
-        query_indicator_QR = 1
-        opcode_OPCODE = 0
-        authoritative_answer_AA = 0
-        truncation_TC = 0
-        recursion_desired_RD = 0
-        recursion_available_RA = 0
-        reserved_Z = 0
-        response_code_RCODE = 0
-        question_count_QDCOUNT = 1
-        answer_record_count_ANCOUNT = 1
-        authority_record_count_NSCOUNT = 0
-        additional_record_count_ARCOUNT = 0
+class header():
 
+    def __init__(self,
+        packet_id_ID,
+        query_indicator_QR,
+        opcode_OPCODE,
+        authoritative_answer_AA,
+        truncation_TC,
+        recursion_desired_RD,
+        recursion_available_RA,
+        reserved_Z,
+        response_code_RCODE,
+        question_count_QDCOUNT,
+        answer_record_count_ANCOUNT,
+        authority_record_count_NSCOUNT,
+        additional_record_count_ARCOUNT):
+
+        self.packet_id_ID = packet_id_ID
+        self.query_indicator_QR = query_indicator_QR
+        self.opcode_OPCODE = opcode_OPCODE
+        self.authoritative_answer_AA = authoritative_answer_AA
+        self.truncation_TC = truncation_TC
+        self.recursion_desired_RD = recursion_desired_RD
+        self.recursion_available_RA = recursion_available_RA
+        self.reserved_Z = reserved_Z
+        self.response_code_RCODE = response_code_RCODE
+        self.question_count_QDCOUNT = question_count_QDCOUNT
+        self.answer_record_count_ANCOUNT = answer_record_count_ANCOUNT
+        self.authority_record_count_NSCOUNT = authority_record_count_NSCOUNT
+        self.additional_record_count_ARCOUNT = additional_record_count_ARCOUNT
+    
+    def write_header(self):
         flags = (
-            (query_indicator_QR << 15)
-            | (opcode_OPCODE << 11)
-            | (authoritative_answer_AA << 10)
-            | (truncation_TC << 9)
-            | (recursion_desired_RD << 8)
-            | (recursion_available_RA << 7)
-            | (reserved_Z << 4)
-            | (response_code_RCODE)
+            (self.query_indicator_QR << 15)
+            | (self.opcode_OPCODE << 11)
+            | (self.authoritative_answer_AA << 10)
+            | (self.truncation_TC << 9)
+            | (self.recursion_desired_RD << 8)
+            | (self.recursion_available_RA << 7)
+            | (self.reserved_Z << 4)
+            | (self.response_code_RCODE)
         )
 
         headermsg = (
-            (packet_id_ID << 80)
+            (self.packet_id_ID << 80)
             | (flags << 64)
-            | (question_count_QDCOUNT << 48)
-            | (answer_record_count_ANCOUNT << 32)
-            | (authority_record_count_NSCOUNT << 16)
-            | additional_record_count_ARCOUNT
+            | (self.question_count_QDCOUNT << 48)
+            | (self.answer_record_count_ANCOUNT << 32)
+            | (self.authority_record_count_NSCOUNT << 16)
+            | self.additional_record_count_ARCOUNT
         )
 
-        self.headermsg = headermsg.to_bytes(12, byteorder="big") # big-endian format
+        return headermsg.to_bytes(12, byteorder="big") # big-endian format
     
     def question(self):
         name_QNAME_label_1 = "codecrafters"
@@ -81,8 +92,8 @@ class dns_message():
 
 
     def fullmsg(self):
-        self.header()
-        fullmsg = self.headermsg + self.question() + self.answer()
+        headermsg=self.write_header()
+        fullmsg = headermsg + self.question() + self.answer()
         return fullmsg 
 
 
@@ -100,8 +111,24 @@ def main():
     while True:
         try:
             buf, source = udp_socket.recvfrom(512)
-    
-            response = dns_message().fullmsg()
+            print(buf)
+            packet_id_ID_byte = buf[0:2]
+            packet_id_ID = int.from_bytes(packet_id_ID_byte, byteorder='big')
+            packet_flags_byte = buf[2:4]
+            packet_flags = int.from_bytes(packet_flags_byte,byteorder="big")
+            opcode = (packet_flags >> 11) & (0xF) # returns decimal
+            recursion_desired_RD = (packet_flags >> 8) & 1
+            #question_count_QDCOUNT_byte = buf[4:6]
+            question_count_QDCOUNT = 1#int.from_bytes(question_count_QDCOUNT_byte, byteorder='big')
+            #print(question_count_QDCOUNT)
+            #answer_record_count_ANCOUNT_byte = buf[6:8]
+            answer_record_count_ANCOUNT = 1#int.from_bytes(answer_record_count_ANCOUNT_byte,byteorder="big")
+            #print(answer_record_count_ANCOUNT)
+            #authority_record_count_NSCOUNT_byte = buf[8:10]
+            authority_record_count_NSCOUNT = 1#int.from_bytes(authority_record_count_NSCOUNT_byte,byteorder="big")
+            #additional_record_count_ARCOUNT_byte = buf[10:-1]
+            additional_record_count_ARCOUNT = 1 #int.from_bytes(answer_record_count_ANCOUNT_byte,byteorder="big")
+            response = header(packet_id_ID,1,opcode,0,0,recursion_desired_RD,0,0,0 if opcode==0 else 4,question_count_QDCOUNT,answer_record_count_ANCOUNT,authority_record_count_NSCOUNT,additional_record_count_ARCOUNT).fullmsg()
     
             udp_socket.sendto(response, source)
         except Exception as e:
