@@ -54,48 +54,50 @@ class header():
 
         return headermsg.to_bytes(12, byteorder="big") # big-endian format
     
-    def question(self):
-        name_QNAME_label_1 = "codecrafters"
-        name_QNAME_label_2 = "io"
-        type_QTYPE = 1
-        class_QCLASS = 1
+class question():
 
+    def __init__(self,name_QNAME_label_1,name_QNAME_label_2):
+
+        self.name_QNAME_label_1 = name_QNAME_label_1
+        self.name_QNAME_label_2 = name_QNAME_label_2
+        self.type_QTYPE = 1
+        self.class_QCLASS = 1
+
+    def write_question(self):
         question_msg = (
-            len(name_QNAME_label_1).to_bytes(length=1, byteorder="big") + name_QNAME_label_1.encode() +
-            len(name_QNAME_label_2).to_bytes(length=1, byteorder="big") + name_QNAME_label_2.encode() + 
-            b"\x00" + type_QTYPE.to_bytes(2,byteorder="big")+
-            class_QCLASS.to_bytes(2,byteorder="big")
+            len(self.name_QNAME_label_1).to_bytes(length=1, byteorder="big") + self.name_QNAME_label_1 +
+            len(self.name_QNAME_label_2).to_bytes(length=1, byteorder="big") + self.name_QNAME_label_2 + 
+            b"\x00" + self.type_QTYPE.to_bytes(2,byteorder="big")+
+            self.class_QCLASS.to_bytes(2,byteorder="big")
         )
 
         return question_msg
 
 
-    def answer(self):
-        name_NAME_label_1 = "codecrafters"
-        name_NAME_label_2 = "io"
-        type_TYPE = 1
-        class_CLASS = 1
-        ttl_TTL = 60
-        length_RDLENGTH = 4
-        data_RDATA = b"\x08"+b"\x08"+b"\x08"+b"\x08"
+class answer():
 
+    def __init__(self, name_NAME_label_1, name_NAME_label_2):
+
+        self.name_NAME_label_1 = name_NAME_label_1
+        self.name_NAME_label_2 = name_NAME_label_2
+        self.type_TYPE = 1
+        self.class_CLASS = 1
+        self.ttl_TTL = 60
+        self.length_RDLENGTH = 4
+        self.data_RDATA = b'\x08\x08\x08\x08'
+        
+        
+    def write_answer(self):
         answer = (
-            len(name_NAME_label_1).to_bytes(length=1, byteorder="big") + name_NAME_label_1.encode() +
-            len(name_NAME_label_2).to_bytes(length=1, byteorder="big") + name_NAME_label_2.encode() + 
-            b"\x00" + type_TYPE.to_bytes(2,byteorder="big")+
-            class_CLASS.to_bytes(2,byteorder="big") + 
-            ttl_TTL.to_bytes(4,byteorder="big") +
-            length_RDLENGTH.to_bytes(2,byteorder="big") +
-            data_RDATA
+            len(self.name_NAME_label_1).to_bytes(length=1, byteorder="big") + self.name_NAME_label_1 +
+            len(self.name_NAME_label_2).to_bytes(length=1, byteorder="big") + self.name_NAME_label_2 + 
+            b"\x00" + self.type_TYPE.to_bytes(2,byteorder="big")+
+            self.class_CLASS.to_bytes(2,byteorder="big") + 
+            self.ttl_TTL.to_bytes(4,byteorder="big") +
+            self.length_RDLENGTH.to_bytes(2,byteorder="big") +
+            self.data_RDATA
         ) 
         return answer
-
-
-    def fullmsg(self):
-        headermsg=self.write_header()
-        fullmsg = headermsg + self.question() + self.answer()
-        return fullmsg 
-
 
 
 
@@ -128,8 +130,17 @@ def main():
             authority_record_count_NSCOUNT = 1#int.from_bytes(authority_record_count_NSCOUNT_byte,byteorder="big")
             #additional_record_count_ARCOUNT_byte = buf[10:-1]
             additional_record_count_ARCOUNT = 1 #int.from_bytes(answer_record_count_ANCOUNT_byte,byteorder="big")
-            response = header(packet_id_ID,1,opcode,0,0,recursion_desired_RD,0,0,0 if opcode==0 else 4,question_count_QDCOUNT,answer_record_count_ANCOUNT,authority_record_count_NSCOUNT,additional_record_count_ARCOUNT).fullmsg()
-    
+            headermsg = header(packet_id_ID,1,opcode,0,0,recursion_desired_RD,0,0,0 if opcode==0 else 4,question_count_QDCOUNT,answer_record_count_ANCOUNT,authority_record_count_NSCOUNT,additional_record_count_ARCOUNT).write_header()
+            question_label_1_len = buf[12]
+            #print(buf[13:25])
+            question_label_1 = buf[13:13+question_label_1_len]
+            question_label_2_len = buf[13+question_label_1_len]
+            question_label_2 = buf[13+question_label_1_len+1:13+question_label_1_len+question_label_2_len+1]
+            #print(question_label_2_len)
+            #print('question_label_1 '+ question_label_1)
+            questionmsg = question(question_label_1,question_label_2).write_question()
+            answermsg = answer(question_label_1,question_label_2).write_answer()
+            response = headermsg + questionmsg + answermsg
             udp_socket.sendto(response, source)
         except Exception as e:
             print(f"Error receiving data: {e}")
