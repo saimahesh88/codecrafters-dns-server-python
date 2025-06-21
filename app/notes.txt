@@ -1,0 +1,56 @@
+Why the MSBs are "11" (0xC0)
+In DNS messages, domain names are typically represented as a sequence of "labels," where each label is prefixed by a byte indicating its length. For example, "www.example.com" would be encoded like this:
+
+3 (length) w w w
+
+7 (length) e x a m p l e
+
+3 (length) c o m
+
+0 (length, indicating the end of the domain name)
+
+Each of these "length" bytes can only have a value from 0 to 63 (since a single label cannot exceed 63 characters). This means that the two most significant bits (MSBs) of a valid label length byte will always be 00.
+
+The designers of DNS compression took advantage of this. They reserved the combination of 11 in the two most significant bits of a byte to signal that this byte (and the one immediately following it) is not a label length, but rather a pointer to another location in the DNS message where the actual domain name (or part of it) is already defined.
+
+So, when a DNS parser reads a byte and sees 11 as its first two bits, it knows immediately: "Aha! This isn't a length. This is a pointer to a compressed name."
+
+Here's a visual:
+
+Normal Label Length Byte:
+0 0 X X X X X X   (where XXX XXXX is the actual length, 0-63)
+
+Compression Pointer Byte (first byte of two):
+1 1 X X X X X X   (where XXX XXXX are part of the 14-bit offset)
+The 0xC0 (binary 11000000) specifically checks for these 11 MSBs. When you AND any byte with 0xC0, it effectively zeros out the last 6 bits and leaves only the first two. If those two bits were 11, the result of the AND operation will be 0xC0.
+
+What is the "Jump"?
+The "jump" refers to the act of changing the current parsing position (the offset in your code) from where the pointer was encountered to the location indicated by the pointer's value.
+
+Imagine a DNS message containing these two resource records:
+
+www.example.com (full name spelled out)
+
+mail.example.com (partially compressed)
+
+Without compression, the message would have to spell out example.com twice, consuming more bytes. With compression, it might look something like this in the raw DNS message:
+
+...
+Offset 50: [3] w w w [7] e x a m p l e [3] c o m [0]  <-- First occurrence of example.com
+...
+Offset 90: [4] m a i l C0 57                                 <-- Pointer to "example.com"
+                                                                (C0 means it's a pointer, 57 is the offset)
+...
+Let's say example.com starts at offset 57 in the message.
+
+When the parser reaches Offset 90 and reads the byte 0xC0, it realizes it's a compression pointer. It then extracts the 14-bit offset from the 0xC0 byte and the following byte. This 14-bit offset will point to Offset 57.
+
+The "jump" means the parser then changes its current reading position from Offset 90 to Offset 57. It continues decoding the domain name from Offset 57 (which would be example.com and then the null terminator 0). Once it has successfully decoded the compressed part (example.com), it then needs to conceptually "return" to where it jumped from to continue parsing any subsequent parts of the current domain name (in this case, there are none, as mail.example.com fully resolved).
+
+The original_offset in your code snippet is precisely for this purpose: if a domain name is partly compressed (e.g., sub.sub2.example.com where example.com is compressed), the parser would first decode sub.sub2, then jump to get example.com, and after getting example.com, it would use original_offset to know where to resume parsing if there were more uncompressed labels after the pointer (though typically, pointers point to the end of a name or to common suffixes).
+
+Analogy:
+
+Think of it like a book. If the author keeps repeating the same long phrase, instead of writing it out every time, they might write "See page X for the full phrase." When you're reading and hit "See page X," you "jump" to page X, read the phrase, and then continue reading from where you left off. DNS name compression works in a very similar way, but within the bytes of a message rather than pages of a book.
+
+This compression is critical for DNS efficiency, especially because domain names often share common suffixes (like .com, .org, or specific subdomains within an organization). It significantly reduces the size of DNS messages, which in turn reduces network traffic and speeds up DNS lookups.

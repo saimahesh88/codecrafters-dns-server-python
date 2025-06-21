@@ -1,149 +1,161 @@
 import socket
+import struct
 
-class header():
-
-    def __init__(self,
-        packet_id_ID,
-        query_indicator_QR,
-        opcode_OPCODE,
-        authoritative_answer_AA,
-        truncation_TC,
-        recursion_desired_RD,
-        recursion_available_RA,
-        reserved_Z,
-        response_code_RCODE,
-        question_count_QDCOUNT,
-        answer_record_count_ANCOUNT,
-        authority_record_count_NSCOUNT,
-        additional_record_count_ARCOUNT):
-
-        self.packet_id_ID = packet_id_ID
-        self.query_indicator_QR = query_indicator_QR
-        self.opcode_OPCODE = opcode_OPCODE
-        self.authoritative_answer_AA = authoritative_answer_AA
-        self.truncation_TC = truncation_TC
-        self.recursion_desired_RD = recursion_desired_RD
-        self.recursion_available_RA = recursion_available_RA
-        self.reserved_Z = reserved_Z
-        self.response_code_RCODE = response_code_RCODE
-        self.question_count_QDCOUNT = question_count_QDCOUNT
-        self.answer_record_count_ANCOUNT = answer_record_count_ANCOUNT
-        self.authority_record_count_NSCOUNT = authority_record_count_NSCOUNT
-        self.additional_record_count_ARCOUNT = additional_record_count_ARCOUNT
-    
-    def write_header(self):
-        flags = (
-            (self.query_indicator_QR << 15)
-            | (self.opcode_OPCODE << 11)
-            | (self.authoritative_answer_AA << 10)
-            | (self.truncation_TC << 9)
-            | (self.recursion_desired_RD << 8)
-            | (self.recursion_available_RA << 7)
-            | (self.reserved_Z << 4)
-            | (self.response_code_RCODE)
-        )
-
-        headermsg = (
-            (self.packet_id_ID << 80)
-            | (flags << 64)
-            | (self.question_count_QDCOUNT << 48)
-            | (self.answer_record_count_ANCOUNT << 32)
-            | (self.authority_record_count_NSCOUNT << 16)
-            | self.additional_record_count_ARCOUNT
-        )
-
-        return headermsg.to_bytes(12, byteorder="big") # big-endian format
-    
-class question():
-
-    def __init__(self,name_QNAME_label_1,name_QNAME_label_2):
-
-        self.name_QNAME_label_1 = name_QNAME_label_1
-        self.name_QNAME_label_2 = name_QNAME_label_2
-        self.type_QTYPE = 1
-        self.class_QCLASS = 1
-
-    def write_question(self):
-        question_msg = (
-            len(self.name_QNAME_label_1).to_bytes(length=1, byteorder="big") + self.name_QNAME_label_1 +
-            len(self.name_QNAME_label_2).to_bytes(length=1, byteorder="big") + self.name_QNAME_label_2 + 
-            b"\x00" + self.type_QTYPE.to_bytes(2,byteorder="big")+
-            self.class_QCLASS.to_bytes(2,byteorder="big")
-        )
-
-        return question_msg
+# ------------------------------
+# 1. Encoding / Decoding Helpers
+# ------------------------------
 
 
-class answer():
+def encode_domain(domain):
+    parts = domain.split(".")
+    encoded = b""
+    for part in parts:
+        encoded += bytes([len(part)]) + part.encode()
+    encoded += b"\x00"
+    return encoded
 
-    def __init__(self, name_NAME_label_1, name_NAME_label_2):
 
-        self.name_NAME_label_1 = name_NAME_label_1
-        self.name_NAME_label_2 = name_NAME_label_2
-        self.type_TYPE = 1
-        self.class_CLASS = 1
-        self.ttl_TTL = 60
-        self.length_RDLENGTH = 4
-        self.data_RDATA = b'\x08\x08\x08\x08'
-        
-        
-    def write_answer(self):
-        answer = (
-            len(self.name_NAME_label_1).to_bytes(length=1, byteorder="big") + self.name_NAME_label_1 +
-            len(self.name_NAME_label_2).to_bytes(length=1, byteorder="big") + self.name_NAME_label_2 + 
-            b"\x00" + self.type_TYPE.to_bytes(2,byteorder="big")+
-            self.class_CLASS.to_bytes(2,byteorder="big") + 
-            self.ttl_TTL.to_bytes(4,byteorder="big") +
-            self.length_RDLENGTH.to_bytes(2,byteorder="big") +
-            self.data_RDATA
-        ) 
-        return answer
+def parse_name(data, offset):
+    labels = []
+    jumped = False
+    original_offset = offset
 
+    while True:
+        length = data[offset]
+        if length == 0:
+            offset += 1
+            break
+# If the length byte represents an actual label length (0-63), the two MSBs will be 00.
+# If the length byte is part of a pointer for name compression, the two MSBs will be 11 (C0).
+        if (length & 0xC0) == 0xC0:
+            # Name compression
+            if not jumped:
+                original_offset = offset + 2
+            pointer = ((length & 0x3F) << 8) | data[offset + 1] #This pointer value is an offset from the beginning of the DNS message where the actual, uncompressed form of the domain name (or part of it) can be found.offset is 14 bits for the compression pointer.
+            offset = pointer
+            jumped = True
+        else:
+            offset += 1
+            labels.append(data[offset : offset + length].decode())
+            offset += length
+
+    domain = ".".join(labels)
+    return domain, (original_offset if jumped else offset)
+
+
+# ------------------------------
+# 2. DNS Query Parser
+# ------------------------------
+
+
+def parse_dns_query(data):
+    transaction_id = data[0:2]
+    flags = data[2:4]
+    qdcount = int.from_bytes(data[4:6], "big")
+
+    questions = []
+    offset = 12
+
+    for _ in range(qdcount):
+        domain, offset = parse_name(data, offset)
+        qtype = int.from_bytes(data[offset : offset + 2], "big")
+        qclass = int.from_bytes(data[offset + 2 : offset + 4], "big")
+        questions.append({"domain": domain, "qtype": qtype, "qclass": qclass})
+        offset += 4
+
+    return {
+        "transaction_id": transaction_id,
+        "flags": flags,
+        "qdcount": qdcount,
+        "questions": questions,
+        "query_end": offset,
+        "original_query": data,
+    }
+
+
+# ------------------------------
+# 3. DNS Builders
+# ------------------------------
+
+
+def build_response_header(parsed_query, ancount):
+    transaction_id = parsed_query["transaction_id"]
+    flags_raw = int.from_bytes(parsed_query["flags"], "big")
+
+    opcode = (flags_raw >> 11) & 0xF
+    rd = (flags_raw >> 8) & 0x1
+    rcode = 0 if opcode == 0 else 4
+
+    qr, aa, tc, ra = 1, 0, 0, 1
+    flags = (
+        (qr << 15)
+        | (opcode << 11)
+        | (aa << 10)
+        | (tc << 9)
+        | (rd << 8)
+        | (ra << 7)
+        | (rcode & 0xF)
+    )
+    flags_bytes = flags.to_bytes(2, "big")
+    qdcount = len(parsed_query["questions"]).to_bytes(2, "big")
+    ancount_bytes = ancount.to_bytes(2, "big") if rcode == 0 else (0).to_bytes(2, "big")
+    nscount = arcount = (0).to_bytes(2, "big")
+
+    return transaction_id + flags_bytes + qdcount + ancount_bytes + nscount + arcount
+
+
+def build_question_section(parsed_query):
+    q_section = b""
+    for q in parsed_query["questions"]:
+        q_section += encode_domain(q["domain"])
+        q_section += q["qtype"].to_bytes(2, "big")
+        q_section += q["qclass"].to_bytes(2, "big")
+    return q_section
+
+
+def build_answer_section(parsed_query, ip="8.8.8.8", ttl=60):
+    answers = []
+    for q in parsed_query["questions"]:
+        if q["qtype"] == 1 and q["qclass"] == 1:  # Only A IN
+            name = b"\xc0\x0c"  # Pointer to domain at offset 12
+            type_bytes = q["qtype"].to_bytes(2, "big")
+            class_bytes = q["qclass"].to_bytes(2, "big")
+            ttl_bytes = ttl.to_bytes(4, "big")
+            rdata = bytes(map(int, ip.split(".")))
+            rdlength = len(rdata).to_bytes(2, "big")
+            answers.append(
+                name + type_bytes + class_bytes + ttl_bytes + rdlength + rdata
+            )
+    return b"".join(answers)
+
+
+# ------------------------------
+# 4. Main Server
+# ------------------------------
 
 
 def main():
-    # You can use print statements as follows for debugging, they'll be visible when running tests.
-    print("Logs from your program will appear here!")
+    print("Starting DNS server on 127.0.0.1:2053")
 
-    # Uncomment this block to pass the first stage
-    
     udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp_socket.bind(("127.0.0.1", 2053))
-    
+
     while True:
         try:
-            buf, source = udp_socket.recvfrom(512)
-            print(buf)
-            packet_id_ID_byte = buf[0:2]
-            packet_id_ID = int.from_bytes(packet_id_ID_byte, byteorder='big')
-            packet_flags_byte = buf[2:4]
-            packet_flags = int.from_bytes(packet_flags_byte,byteorder="big")
-            opcode = (packet_flags >> 11) & (0xF) # returns decimal
-            recursion_desired_RD = (packet_flags >> 8) & 1
-            #question_count_QDCOUNT_byte = buf[4:6]
-            question_count_QDCOUNT = 1#int.from_bytes(question_count_QDCOUNT_byte, byteorder='big')
-            #print(question_count_QDCOUNT)
-            #answer_record_count_ANCOUNT_byte = buf[6:8]
-            answer_record_count_ANCOUNT = 1#int.from_bytes(answer_record_count_ANCOUNT_byte,byteorder="big")
-            #print(answer_record_count_ANCOUNT)
-            #authority_record_count_NSCOUNT_byte = buf[8:10]
-            authority_record_count_NSCOUNT = 1#int.from_bytes(authority_record_count_NSCOUNT_byte,byteorder="big")
-            #additional_record_count_ARCOUNT_byte = buf[10:-1]
-            additional_record_count_ARCOUNT = 1 #int.from_bytes(answer_record_count_ANCOUNT_byte,byteorder="big")
-            headermsg = header(packet_id_ID,1,opcode,0,0,recursion_desired_RD,0,0,0 if opcode==0 else 4,question_count_QDCOUNT,answer_record_count_ANCOUNT,authority_record_count_NSCOUNT,additional_record_count_ARCOUNT).write_header()
-            question_label_1_len = buf[12]
-            #print(buf[13:25])
-            question_label_1 = buf[13:13+question_label_1_len]
-            question_label_2_len = buf[13+question_label_1_len]
-            question_label_2 = buf[13+question_label_1_len+1:13+question_label_1_len+question_label_2_len+1]
-            #print(question_label_2_len)
-            #print('question_label_1 '+ question_label_1)
-            questionmsg = question(question_label_1,question_label_2).write_question()
-            answermsg = answer(question_label_1,question_label_2).write_answer()
-            response = headermsg + questionmsg + answermsg
-            udp_socket.sendto(response, source)
+            data, addr = udp_socket.recvfrom(1024)
+            parsed = parse_dns_query(data)
+
+            answers = build_answer_section(parsed)
+            header = build_response_header(
+                parsed, ancount=len(answers) // 16
+            )  # Each A record = 16 bytes
+            question = build_question_section(parsed)
+
+            response = header + question + answers
+            udp_socket.sendto(response, addr)
+
         except Exception as e:
-            print(f"Error receiving data: {e}")
+            print(f"Error: {e}")
             break
 
 
