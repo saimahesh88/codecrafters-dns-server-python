@@ -54,3 +54,11 @@ Analogy:
 Think of it like a book. If the author keeps repeating the same long phrase, instead of writing it out every time, they might write "See page X for the full phrase." When you're reading and hit "See page X," you "jump" to page X, read the phrase, and then continue reading from where you left off. DNS name compression works in a very similar way, but within the bytes of a message rather than pages of a book.
 
 This compression is critical for DNS efficiency, especially because domain names often share common suffixes (like .com, .org, or specific subdomains within an organization). It significantly reduces the size of DNS messages, which in turn reduces network traffic and speeds up DNS lookups.
+
+
+Why did we modify the answer last 5 bytes
+
+When your DNS proxy forwards a query from a client to an upstream DNS server, the client might have set the DO bit in its query (indicating it wants DNSSEC validation).
+The upstream DNS server performs the lookup and potentially DNSSEC validation. Its response (buf2) will contain the actual result of that validation in its OPT record (e.g., the DO bit set if validation was performed, and the RCODE indicating success or failure).
+If the proxy simply forwarded the original query's OPT record (or omitted it), the client would not receive the correct DNSSEC status or extended error codes from the upstream server.
+By taking the buf2[-5:] (the last 5 bytes from the upstream server's response) and appending them to answers[:-5] (your partially constructed response), the proxy is trying to ensure that the EDNS(0) information from the authoritative source is passed back to the client.
