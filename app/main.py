@@ -1,5 +1,5 @@
 import socket
-import struct
+import argparse
 
 # ------------------------------
 # 1. Encoding / Decoding Helpers
@@ -121,7 +121,7 @@ def build_answer_section(parsed_query, ip="8.8.8.8", ttl=60):
             type_bytes = q["qtype"].to_bytes(2, "big")
             class_bytes = q["qclass"].to_bytes(2, "big")
             ttl_bytes = ttl.to_bytes(4, "big")
-            rdata = bytes(map(int, ip.split(".")))
+            rdata = bytes(map(int, ip.split(".")))#converts ip address n str to bytes
             rdlength = len(rdata).to_bytes(2, "big")
             answers.append(
                 name + type_bytes + class_bytes + ttl_bytes + rdlength + rdata
@@ -140,6 +140,10 @@ def main():
     udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp_socket.bind(("127.0.0.1", 2053))
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--resolver", nargs="*")
+    args = parser.parse_args()
+
     while True:
         try:
             data, addr = udp_socket.recvfrom(1024)
@@ -151,8 +155,24 @@ def main():
             )  # Each A record = 16 bytes
             question = build_question_section(parsed)
 
+            print("Preparing the request...")
+            resolver_addr, resolver_port = args.resolver[0].split(":")
+            resolver_dest = (resolver_addr, int(resolver_port)) #tuple of IP address and port which is used to establish connections in python
+            
+            print("Sending request....")
+            udp_socket.sendto(data,resolver_dest)
+            data_from_server, addr_of_server = udp_socket.recvfrom(1024)
+
+            #TODO: understand the reason for below line
+            answers = answers[:-5] + data_from_server[-5:]
+
+            print("Preparing response...")
             response = header + question + answers
+
+            print("Sending response...")
             udp_socket.sendto(response, addr)
+
+            print("Reply has been sent")
 
         except Exception as e:
             print(f"Error: {e}")
