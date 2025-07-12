@@ -163,8 +163,8 @@ def main():
             udp_socket.sendto(data,resolver_dest)
             data_from_server, addr_of_server = udp_socket.recvfrom(1024)
 
-            #TODO: understand the reason for below line
-            #answers = answers[:-5] + data_from_server[-5:]
+            #modifies the dummy 8.8.8.8 to the actual ip of the server to which the request was forwarded to
+            answers = answers[:-5] + data_from_server[-5:]
 
             print("Preparing response...")
             response = header + question + answers
